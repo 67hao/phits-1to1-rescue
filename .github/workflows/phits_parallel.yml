@@ -1,4 +1,4 @@
-﻿name: PHITS 20-Runner Parallel Simulation (Paper 10.1)
+name: PHITS 20-Runner Parallel Simulation (Paper 10.1)
 
 on:
   workflow_dispatch:
@@ -64,13 +64,13 @@ jobs:
           GDRIVE_OAUTH_JSON: ${{ secrets.GDRIVE_OAUTH_JSON }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
-          python3 run_phits_task.py \
+          python3 run_phits_1to1.py \
             --runner-id ${{ matrix.runner_id }} \
-            --num-runners 20 \
-            --sample-filter "${{ github.event.inputs.sample_filter }}" \
-            --maxcas ${{ github.event.inputs.maxcas }} \
-            --omp ${{ github.event.inputs.omp }} \
-            --timeout-hours 5.4
+            --num-runners 100 \
+            --checklist "missing_ph.csv" \
+            --primaries 10000000 \
+            --gdrive-folder "1Q3KE3Ncfm-Nn6FIbGhFXs25HFIq-InOn" \
+            --omp ${{ github.event.inputs.omp }}
 
   aggregate-and-summarize:
     name: Merge Results & Generate Paper 1 Excel
@@ -97,3 +97,5 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           python3 aggregate_and_calculate.py
+
+
