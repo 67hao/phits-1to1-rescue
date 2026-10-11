@@ -62,6 +62,9 @@ def build_my_jobs(checklist_csv: str, runner_id: int, num_runners: int, output_b
             rho = DENSITY.get(sample.lower(), 1.0)
             mat_r1_str = format_material(mat_dict)
             content = SAMPLE_TEMPLATE.format(
+                job_name=job_name,
+                mat_upper=sample,
+                mat_comp=mat_r1_str,
                 sample_name=sample, energy_kev=energy_kev, thickness_str=_fmt_thickness(th),
                 e0_mev=e0_mev, emax_mev=emax_mev, emin_peak=emin_peak, emax_peak=emax_peak,
                 omp=omp, maxcas=maxcas, rho=rho, mat_r1_str=mat_r1_str, z_sample_back=z_sample_back
