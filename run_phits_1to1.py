@@ -58,8 +58,8 @@ def build_my_jobs(checklist_csv: str, runner_id: int, num_runners: int, output_b
             jdir = output_base / job_name
             jdir.mkdir(parents=True, exist_ok=True)
             jinp = jdir / f"{job_name}.inp"
-            mat_dict = COMPOSITION.get(sample, {})
-            rho = DENSITY.get(sample, 1.0)
+            mat_dict = COMPOSITION.get(sample.lower(), {})
+            rho = DENSITY.get(sample.lower(), 1.0)
             mat_r1_str = format_material(mat_dict)
             content = SAMPLE_TEMPLATE.format(
                 sample_name=sample, energy_kev=energy_kev, thickness_str=_fmt_thickness(th),
