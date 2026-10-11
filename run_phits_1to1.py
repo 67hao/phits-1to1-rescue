@@ -10,6 +10,7 @@ from generate_inputs import _parse_thickness_list, _fmt_thickness, SAMPLE_TEMPLA
 import gdrive_helper
 
 def parse_track_flux(filepath: Path) -> tuple:
+    """Doc file T-Track (F4 equivalent) trong vung detector (reg 104), tra ve (flux, r_err)."""
     lines = filepath.read_text(encoding="utf-8", errors="ignore").splitlines()
     for line in lines:
         parts = line.strip().split()
@@ -20,7 +21,22 @@ def parse_track_flux(filepath: Path) -> tuple:
                 return flux, err
             except ValueError:
                 pass
-    raise ValueError(f"Not found in {filepath}")
+    raise ValueError(f"Khong tim thay du lieu flux vung reg 104 trong {filepath}")
+
+def setup_phits_environment(tar_path: Path, target_dir: Path) -> tuple:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    phits_bin = target_dir / "phits"
+    if not phits_bin.exists():
+        print(f">>> [SETUP] Dang giai nen goi PHITS tu {tar_path}...")
+        subprocess.run(["tar", "-zxf", str(tar_path.resolve()), "-C", str(target_dir.resolve())], check=True)
+        if not phits_bin.exists():
+            matches = list(target_dir.rglob("phits"))
+            if matches:
+                phits_bin = matches[0]
+        subprocess.run(["chmod", "+x", str(phits_bin)], check=True)
+    
+    print(f">>> [SETUP] PHITS binary san sang tai: {phits_bin}")
+    return phits_bin.resolve(), target_dir.resolve()
 
 def build_my_jobs(checklist_csv: str, runner_id: int, num_runners: int, output_base: Path, omp: int, maxcas: int):
     df = pd.read_csv(checklist_csv)
@@ -77,11 +93,13 @@ def build_my_jobs(checklist_csv: str, runner_id: int, num_runners: int, output_b
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runner-id", type=int, required=True)
-    parser.add_argument("--num-runners", type=int, default=20)
+    parser.add_argument("--num-runners", type=int, default=100)
     parser.add_argument("--primaries", type=int, default=100000000)
     parser.add_argument("--gdrive-folder", type=str, required=True)
     parser.add_argument("--checklist", type=str, default="missing_ph.csv")
     parser.add_argument("--omp", type=int, default=2)
+    parser.add_argument("--package-path", type=str, default="phits_pack/phits_package.tar.gz")
+    parser.add_argument("--timeout-hours", type=float, default=5.4)
     parser.add_argument("--github-user", type=str, default="local")
     args = parser.parse_args()
     
@@ -93,7 +111,11 @@ def main():
     res = drive_service.files().list(q=q, fields="files(id, name)", pageSize=1000).execute()
     existing_files = {f['name'] for f in res.get('files', [])}
     
-    work_dir = Path("phits_work")
+    work_dir = Path("/tmp/phits_work").resolve()
+    work_dir.mkdir(parents=True, exist_ok=True)
+    
+    phits_bin, phits_root = setup_phits_environment(Path(args.package_path), work_dir / "bin")
+    
     my_jobs = build_my_jobs(args.checklist, args.runner_id, args.num_runners, work_dir / "inputs", args.omp, args.primaries)
     
     for job in my_jobs:
@@ -106,29 +128,51 @@ def main():
             
         print(f"--- RUNNING PHITS: {csv_name} ---")
         t0 = time.time()
-        res = subprocess.run(["phits", str(job['inp'].absolute())], cwd=str(job['dir']), capture_output=True, text=True)
-        if res.returncode != 0:
-            print(f"PHITS ERROR: {res.stderr[-300:]}")
-            continue
-            
-        flux_file = job['dir'] / "flux.out"
-        peak, err = parse_track_flux(flux_file) if flux_file.exists() else (0.0, 0.0)
         
+        env = os.environ.copy()
+        env["PHITSPATH"] = str(phits_root)
+        env["OMP_NUM_THREADS"] = str(args.omp)
+        
+        inp_name = job['inp'].name
+        cmd = f'"{phits_bin}" < "{inp_name}"'
+        res = subprocess.run(cmd, shell=True, cwd=str(job['dir']), env=env, capture_output=True, text=True)
+        if res.returncode != 0:
+            print(f"PHITS ERROR / RETURNCODE {res.returncode}: {(res.stderr or res.stdout)[-300:]}")
+            
+        peak_out = job['dir'] / f"peak_{job['name']}.out"
+        track_out = job['dir'] / f"track_{job['name']}.out"
+        
+        p_val, p_err = (0.0, 0.0)
+        t_val, t_err = (0.0, 0.0)
+        
+        if peak_out.exists():
+            try:
+                p_val, p_err = parse_track_flux(peak_out)
+            except Exception as e:
+                print(f"Warning parsing peak: {e}")
+                
+        if track_out.exists():
+            try:
+                t_val, t_err = parse_track_flux(track_out)
+            except Exception as e:
+                print(f"Warning parsing track: {e}")
+                
         df = pd.DataFrame([{
             "job_name": job['name'],
             "energy_mev": job['energy_mev'],
             "sample": job['sample'],
             "thickness_cm": job['thickness_cm'],
-            "peak_flux": peak,
-            "peak_err": err,
-            "total_flux": peak,
-            "total_err": err
+            "peak_flux": p_val,
+            "peak_err": p_err,
+            "total_flux": t_val,
+            "total_err": t_err
         }])
         
         out_csv = job['dir'] / csv_name
         df.to_csv(out_csv, index=False)
         gdrive_helper.upload_file_to_folder(drive_service, str(out_csv), flux_folder_id)
-        print(f"Uploaded {csv_name} in {time.time()-t0:.1f}s")
+        existing_files.add(csv_name)
+        print(f"Uploaded {csv_name} in {time.time()-t0:.1f}s | Peak: {p_val:.6e}")
 
 if __name__ == "__main__":
     main()

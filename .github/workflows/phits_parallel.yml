@@ -70,7 +70,7 @@ jobs:
             --checklist "missing_ph.csv" \
             --primaries 10000000 \
             --gdrive-folder "1Q3KE3Ncfm-Nn6FIbGhFXs25HFIq-InOn" \
-            --omp ${{ github.event.inputs.omp }}
+            --omp 2
 
   aggregate-and-summarize:
     name: Merge Results & Generate Paper 1 Excel
